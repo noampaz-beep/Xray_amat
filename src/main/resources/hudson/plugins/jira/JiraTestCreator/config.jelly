@@ -3,4 +3,13 @@
     <f:entry title="${%Assignee}" field="assignee">
         <f:textbox/>
     </f:entry>
+  <f:entry>
+    <f:checkbox title="${%report to JIRA }" field="report" />
+  </f:entry>
+  <f:entry title="${%JIRA Project Key}" field="projectKey">
+        <f:textbox/>
+  </f:entry>
+  <f:entry title="${%JIRA Branch}" field="branchName">
+        <f:textbox/>
+  </f:entry>
 </j:jelly>

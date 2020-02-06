@@ -58,8 +58,11 @@ public class JiraTestCreator extends Recorder implements SimpleBuildStep {
     //private static final String XRAY_DATA_FOLDER = "\\\\amat.com\\folders\\Israel\\PDC_AutoTest\\TestsInputs\\Common\\Xray_Data";
     private static final String XRAY_DATA_FOLDER = "C:\\temp\\";
     private static PrintStream stdout = System.out;
+    private Boolean report;
+    private String branchName;
     private String testResults;
     private String projectKey;
+    private String projectKeyUser;
     private String subProjectKey;
     private String fixVersion;
     //private String testDescription;
@@ -72,10 +75,13 @@ public class JiraTestCreator extends Recorder implements SimpleBuildStep {
     //private Integer actionIdOnSuccess;
 
     @DataBoundConstructor
-    public JiraTestCreator(String testResults, String assignee, String component) {
+    public JiraTestCreator(String testResults,Boolean report,String projectKey,String assignee,String branchName, String component) {
         // if (projectKey == null) throw new IllegalArgumentException("Project key cannot be null");
         this.testResults = "";
-        // this.projectKey = projectKey;
+        this.branchName=branchName;
+        this.report=report;
+        this.projectKey = "";
+        this.projectKeyUser=projectKey;
         //this.testDescription = testDescription;
         this.assignee = assignee;
         this.component = "";
@@ -88,55 +94,68 @@ public class JiraTestCreator extends Recorder implements SimpleBuildStep {
     @Override
     public void perform(Run<?, ?> build, FilePath workspace, Launcher launcher,
                         TaskListener listener) throws InterruptedException, IOException {
-        final String expandedTestResults = build.getEnvironment(listener).expand(getTestResults());
-        try {
-            AbstractBuild<?,?> abstractBuild = (AbstractBuild<?,?>) build;
+        if (report) {
+            final String expandedTestResults = build.getEnvironment(listener).expand(getTestResults());
+            try {
+                AbstractBuild<?, ?> abstractBuild = (AbstractBuild<?, ?>)build;
 
-            TestResult testResult = new JUnitParser(false)
-                .parseResult(expandedTestResults, build, workspace, launcher, listener);
-            JiraSession session = getJiraSession(abstractBuild);
-            String jobDirPath = abstractBuild.getProject().getBuildDir().getPath();
+                TestResult testResult = new JUnitParser(false)
+                    .parseResult(expandedTestResults, build, workspace, launcher, listener);
+                JiraSession session = getJiraSession(abstractBuild);
+                String jobDirPath = abstractBuild.getProject().getBuildDir().getPath();
 
-            String filename = jobDirPath + File.separator + "issue.txt";
-            PrintStream logger=listener.getLogger();
-            for(SuiteResult testSuite: testResult.getSuites()) {
-                for(CaseResult caseResult: testSuite.getCases()) {
-                    String summary = caseResult.getName();
-                    String description = "";
-                    setFixVersion(abstractBuild);
-                    if(fixVersion.equals("empty")){
-                        EnvVars vars = build.getEnvironment(TaskListener.NULL);
-                        logger.println("ERROR: Could not find Fix version: "+"'"+ getBranchName(vars)+"'"+ " test issue was not created for: " + caseResult.getName());
-                        break;
-                    }
-                    projectKey = getProjectKey(caseResult.getClassName(), listener);
-                    if (projectKey.equals("empty")){
-                        logger.println("ERROR: Could not find project key: " +"'"+ caseResult.getClassName()+ "'" +" test issue was not created for: " + caseResult.getName());
-                        break;
-                    }
-                    subProjectKey = getSubProjectKey(caseResult.getClassName(), listener);
-                    if (subProjectKey.equals("empty")){
-                        logger.println("ERROR: Could not find sub project key for: "+"'"+ caseResult.getClassName()+"'"+ " test issue was not created for: " + caseResult.getName());
-                        break;
-                    }
+                String filename = jobDirPath + File.separator + "issue.txt";
+                PrintStream logger = listener.getLogger();
+                for (SuiteResult testSuite : testResult.getSuites()) {
+                    for (CaseResult caseResult : testSuite.getCases()) {
+                        String summary = caseResult.getName();
+                        String description = "";
 
-                    ExecutionStatus executionStatus = ExecutionStatus.PASS;
-                    if (caseResult.isFailed() || caseResult.isSkipped()) {
-                        executionStatus = ExecutionStatus.FAIL;
-                        description = caseResult.getErrorDetails() + "\n" +
-                                      caseResult.getErrorStackTrace();
-                    }
+                        setFixVersion(abstractBuild);
+                        if (fixVersion.equals("empty")) {
+                            EnvVars vars = build.getEnvironment(TaskListener.NULL);
+                            logger.println("ERROR: Could not find Fix version: " + "'" + getBranchName(vars) + "'" +
+                                           " test issue was not created for: " + caseResult.getName());
+                            break;
+                        }
+                        if (projectKeyUser.isEmpty()){
+                            projectKey = getProjectKey(caseResult.getClassName(), listener);
+                        }else{
+                            projectKey = getProjectKey(projectKeyUser,listener);
+                        }
 
-                    Issue issue =
-                        createJiraTest(abstractBuild, filename, summary, executionStatus, description, listener,fixVersion);
+                        if (projectKey.equals("empty")) {
+                            logger.println(
+                                "ERROR: Could not find project key: " + "'" + caseResult.getClassName() + "'" +
+                                " test issue was not created for: " + caseResult.getName());
+                            break;
+                        }
+                        subProjectKey = getSubProjectKey(caseResult.getClassName(), listener);
+                        if (subProjectKey.equals("empty")) {
+                            logger.println(
+                                "ERROR: Could not find sub project key for: " + "'" + caseResult.getClassName() + "'" +
+                                " test issue was not created for: " + caseResult.getName());
+                            break;
+                        }
+
+                        ExecutionStatus executionStatus = ExecutionStatus.PASS;
+                        if (caseResult.isFailed() || caseResult.isSkipped()) {
+                            executionStatus = ExecutionStatus.FAIL;
+                            description = caseResult.getErrorDetails() + "\n" +
+                                          caseResult.getErrorStackTrace();
+                        }
+
+                        Issue issue =
+                            createJiraTest(abstractBuild, filename, summary, executionStatus, description, listener,
+                                           fixVersion);
+
+                    }
 
                 }
-
+            } catch (IOException e) {
+                LOG.warning("Error creating JIRA issue\n" + e.getMessage());
             }
-        } catch (IOException e) {
-            LOG.warning("Error creating JIRA issue\n" + e.getMessage());
         }
-
     }
 
     public String getProjectKey(String project,TaskListener listener ) throws IOException {
@@ -266,7 +285,7 @@ public class JiraTestCreator extends Recorder implements SimpleBuildStep {
         EnvVars vars = build.getEnvironment(TaskListener.NULL);
         Reader csvData = Files.newBufferedReader(Paths.get(XRAY_DATA_FOLDER + "\\versionMapping.csv"));
         CSVParser parser = CSVParser.parse(csvData, CSVFormat.EXCEL);
-        String branchName = getBranchName(vars);
+        //String branchName = getBranchName(vars);
         List<CSVRecord> records = parser.getRecords().stream().filter(csvRecord -> csvRecord.get(0).equalsIgnoreCase(branchName)).collect(
             Collectors.toList());
         if (records.size()!=0) {
@@ -350,7 +369,7 @@ public class JiraTestCreator extends Recorder implements SimpleBuildStep {
                         session.updateTestExecution(issue, testRun.getTestExecutions().get(0).getKey(),
                                                     executionSummary, executionStatus, description, fixVersion,listener);
                         logger.println(String.format("Status of test execution [%s] of test [%s] was updated.",
-                                               testRun.getTestExecutions().get(0).getKey(), issue.getKey()));
+                                                     testRun.getTestExecutions().get(0).getKey(), issue.getKey()));
                         return issue;
                     }
                 }
@@ -360,7 +379,7 @@ public class JiraTestCreator extends Recorder implements SimpleBuildStep {
                                                                           executionStatus,
                                                                           description, fixVersion, listener);
                 logger.println(String.format("Status of test execution [%s] of test [%s] was updated.",
-                                       testExecution.getTests().get(0), issue.getKey()));
+                                             testExecution.getTests().get(0), issue.getKey()));
                 return issue;
             }
         } catch (TimeoutException e) {
