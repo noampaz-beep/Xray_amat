@@ -35,7 +35,7 @@
     <!-- tests -->
     <groovy.version>2.4.5</groovy.version>
     <surefire.version>2.20</surefire.version>
-    <configuration-as-code.version>1.8</configuration-as-code.version>
+    <configuration-as-code.version>1.55.1</configuration-as-code.version>
   </properties>
 
   <profiles>
